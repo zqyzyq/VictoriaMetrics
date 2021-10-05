@@ -357,6 +357,48 @@ var (
 	}
 )
 
+var (
+	vmGenerateFlags = []cli.Flag{
+		&cli.StringFlag{
+			Name:     "generate-time-start",
+			Usage:    "From which point in time to start generating data. RFC3339 2021-12-20T08:02:00Z",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "generate-time-end",
+			Usage:    "To which point in time generate data. RFC3339 2021-12-20T08:02:00Z",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "generate-step",
+			Usage:    "Step between generated datapoints. For example, 5s",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "generate-metric",
+			Usage:    "Metric's name with all the labels. For example, foo{bar=\"baz\"}",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "generate-value",
+			Usage:    "Metric's value for each generated datapoint. For example, 1",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name: "generate-value-func",
+			Usage: "Function to be applied to each datapoint's value. Available options are: const and inc." +
+				"const always return the same value. inc will increment the value by 1 for each datapoint",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name: "generate-file",
+			Usage: "The file name where to put generated data. Please note, generated data will be appended" +
+				"to the file. So multiple generate calls won't override each other but will add up instead.",
+			Required: true,
+		},
+	}
+)
+
 func mergeFlags(flags ...[]cli.Flag) []cli.Flag {
 	var result []cli.Flag
 	for _, f := range flags {

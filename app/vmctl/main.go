@@ -127,6 +127,23 @@ func main() {
 				},
 			},
 			{
+				Name:  "generate",
+				Flags: vmGenerateFlags,
+				Action: func(c *cli.Context) error {
+					fmt.Println("VictoriaMetrics generate mode")
+					cfg := generateCfg{
+						timeFrom: c.String("generate-time-start"),
+						timeTo:   c.String("generate-time-end"),
+						step:     c.Duration("generate-step"),
+						metric:   c.String("generate-metric"),
+						value:    c.Float64("generate-value"),
+						funcName: c.String("generate-value-func"),
+						fileName: c.String("generate-file"),
+					}
+					return Generate(cfg)
+				},
+			},
+			{
 				Name:  "vm-native",
 				Usage: "Migrate time series between VictoriaMetrics installations via native binary format",
 				Flags: vmNativeFlags,

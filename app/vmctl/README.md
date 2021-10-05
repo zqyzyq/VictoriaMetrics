@@ -68,6 +68,30 @@ forget to specify the `--vm-account-id` flag. See more details for cluster versi
 * [How to migrate data from Prometheus. Filtering and modifying time series](https://medium.com/@romanhavronenko/victoriametrics-how-to-migrate-data-from-prometheus-filtering-and-modifying-time-series-6d40cea4bf21)
 
 
+## Time series generator
+
+`vmctl generate` mode is used to generate fake data in Prometheus exposition format,
+so it can be imported later into VictoriaMetrics. The purpose for such data is performing
+various tests and experiments were artificial data is needed.
+
+See `vmctl generate --help` to get details about flags.
+
+Usage examples:
+```
+./bin/vmctl generate -generate-time-start="2021-12-20T08:02:00Z" \
+    -generate-time-end="2021-12-20T08:06:00Z" \
+    -generate-step=5s \
+    -generate-metric='foo{bar="qux"}' \ 
+    -generate-value=2 \
+    -generate-value-func=const \ 
+    -generate-file=import.txt
+```
+
+To import generated data to the VictoriaMetrics use the following command (for single version):
+```
+curl --data-binary "@import.txt" -X POST 'http://localhost:8428/api/v1/import/prometheus'
+```
+
 ## Migrating data from OpenTSDB
 
 `vmctl` supports the `opentsdb` mode to migrate data from OpenTSDB to VictoriaMetrics time-series database.
