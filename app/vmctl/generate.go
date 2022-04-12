@@ -47,6 +47,7 @@ type function func(v float64) float64
 var funcs = map[string]function{
 	"const": func(v float64) float64 { return v },
 	"inc":   func(v float64) float64 { return v + 1 },
+	"dec":   func(v float64) float64 { return v - 1 },
 }
 
 func parseTime(start, end string) (int64, int64, error) {
