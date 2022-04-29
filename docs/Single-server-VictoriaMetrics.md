@@ -768,6 +768,10 @@ for metrics to export. Use `{__name__!=""}` selector for fetching all the time s
 The response would contain all the data for the selected time series in [JSON streaming format](https://en.wikipedia.org/wiki/JSON_streaming#Line-delimited_JSON).
 Each JSON line contains samples for a single time series. An example output:
 
+TODO: add documentation for `extra_filters`, `extra_labels`. Although they are provided by
+vmgateway, we should document them as /export API.
+TODO: add documentation for 'staleness_markers_behavior'.
+
 ```jsonl
 {"metric":{"__name__":"up","job":"node_exporter","instance":"localhost:9100"},"values":[0,0,0],"timestamps":[1549891472010,1549891487724,1549891503438]}
 {"metric":{"__name__":"up","job":"prometheus","instance":"localhost:9090"},"values":[1,1,1],"timestamps":[1549891461511,1549891476511,1549891491511]}
