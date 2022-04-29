@@ -334,7 +334,23 @@ func exportHandler(w http.ResponseWriter, matches []string, etfs [][]storage.Tag
 	writeResponseFunc := WriteExportStdResponse
 	writeLineFunc := func(xb *exportBlock, resultsCh chan<- *quicktemplate.ByteBuffer) {
 		bb := quicktemplate.AcquireByteBuffer()
-		WriteExportJSONLine(bb, xb)
+
+		TODO: receive from query params like `?staleness_markers_behavior`
+		stalenessMarkersBehavior := "skip"
+		//stalenessMarkersBehavior := "write_null"
+
+		nanIndices := make([]int, 0)
+		writeNanAs := ""
+		if stalenessMarkersBehavior == "skip" {
+			for i, v := range xb.values {
+				if math.IsNaN(v) {
+					nanIndices = append(nanIndices, i)
+				}
+			}
+		} else if stalenessMarkersBehavior == "write_null" {
+			writeNanAs = "null"
+		}
+		WriteExportJSONLine(bb, xb, writeNanAs, nanIndices)
 		resultsCh <- bb
 	}
 	contentType := "application/stream+json; charset=utf-8"

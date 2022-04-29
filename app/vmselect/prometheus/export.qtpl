@@ -91,7 +91,7 @@
 	{% code quicktemplate.ReleaseByteBuffer(bb) %}
 {% endfunc %}
 
-{% func ExportJSONLine(xb *exportBlock) %}
+{% func ExportJSONLine(xb *exportBlock, writeNanAs string, nanIndices []int) %}
 	{% if len(xb.timestamps) == 0 %}{% return %}{% endif %}
 	{
 		"metric":{%= metricNameObject(xb.mn) %},
@@ -100,9 +100,15 @@
 				{% code values := xb.values %}
 				{%f= values[0] %}
 				{% code values = values[1:] %}
-				{% for _, v := range values %}
-				  ,{% if math.IsNaN(v) %},null{% else %}{%f= v %}{% endif %}
-				{% endfor %}
+				{% if len(nanIndices) == 0 %}
+					{% for _, v := range values %}
+					  ,{%f= v %}
+					{% endfor %}
+				{% else %}
+					{% for _, v := range values %}
+					  ,{% if math.IsNaN(v) %},{%s= writeNanAs %}{% else %}{%f= v %}{% endif %}
+					{% endfor %}
+				{% endif %}
 			{% endif %}
 		],
 		"timestamps":[
@@ -110,9 +116,19 @@
 				{% code timestamps := xb.timestamps %}
 				{%dl= timestamps[0] %}
 				{% code timestamps = timestamps[1:] %}
-				{% for _, ts := range timestamps %}
-					,{%dl= ts %}
-				{% endfor %}
+				{% if writeNanAs != "" || len(nanIndices) == 0 %}
+					{% for _, ts := range timestamps %}
+						,{%dl= ts %}
+					{% endfor %}
+				{% else %}
+					{% for i, ts := range timestamps %}
+						{% if len(nanIndices) > 0 && i == nanIndices[0] %}
+							{% code nanIndices = nanIndices[1:] %}
+						{% else %}
+							,{%dl= ts %}
+						{% endif %}
+					{% endfor %}
+				{% endif %}
 			{% endif %}
 		]
 	}{% newline %}

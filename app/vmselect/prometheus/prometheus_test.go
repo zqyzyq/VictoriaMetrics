@@ -1,11 +1,13 @@
 package prometheus
 
 import (
+	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmselect/netstorage"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
-
-	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmselect/netstorage"
+	"time"
 )
 
 func TestRemoveEmptyValuesAndTimeseries(t *testing.T) {
@@ -194,4 +196,22 @@ func TestAdjustLastPoints(t *testing.T) {
 			Values:     []float64{1, 2, 2},
 		},
 	})
+}
+
+func TestExportNans(t *testing.T) {
+	rw := httptest.ResponseRecorder{}
+	r := http.Request{
+		Method: "GET",
+		Form: map[string][]string{
+			"match[]": {"testmetric"},
+			"start":   {"1651246961000"},
+		},
+	}
+	startTime := time.Now()
+	err := ExportHandler(startTime, &rw, &r)
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
 }

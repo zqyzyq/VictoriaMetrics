@@ -275,7 +275,7 @@ func ExportPrometheusLine(xb *exportBlock) string {
 }
 
 //line app/vmselect/prometheus/export.qtpl:94
-func StreamExportJSONLine(qw422016 *qt422016.Writer, xb *exportBlock) {
+func StreamExportJSONLine(qw422016 *qt422016.Writer, xb *exportBlock, writeNanAs string, nanIndices []int) {
 //line app/vmselect/prometheus/export.qtpl:95
 	if len(xb.timestamps) == 0 {
 //line app/vmselect/prometheus/export.qtpl:95
@@ -299,282 +299,321 @@ func StreamExportJSONLine(qw422016 *qt422016.Writer, xb *exportBlock) {
 		values = values[1:]
 
 //line app/vmselect/prometheus/export.qtpl:103
-		for _, v := range values {
-//line app/vmselect/prometheus/export.qtpl:103
-			qw422016.N().S(`,`)
+		if len(nanIndices) == 0 {
 //line app/vmselect/prometheus/export.qtpl:104
-			if math.IsNaN(v) {
+			for _, v := range values {
 //line app/vmselect/prometheus/export.qtpl:104
-				qw422016.N().S(`,null`)
-//line app/vmselect/prometheus/export.qtpl:104
-			} else {
-//line app/vmselect/prometheus/export.qtpl:104
-				qw422016.N().F(v)
-//line app/vmselect/prometheus/export.qtpl:104
-			}
+				qw422016.N().S(`,`)
 //line app/vmselect/prometheus/export.qtpl:105
-		}
+				qw422016.N().F(v)
 //line app/vmselect/prometheus/export.qtpl:106
-	}
-//line app/vmselect/prometheus/export.qtpl:106
-	qw422016.N().S(`],"timestamps":[`)
+			}
+//line app/vmselect/prometheus/export.qtpl:107
+		} else {
+//line app/vmselect/prometheus/export.qtpl:108
+			for _, v := range values {
+//line app/vmselect/prometheus/export.qtpl:108
+				qw422016.N().S(`,`)
 //line app/vmselect/prometheus/export.qtpl:109
-	if len(xb.timestamps) > 0 {
+				if math.IsNaN(v) {
+//line app/vmselect/prometheus/export.qtpl:109
+					qw422016.N().S(`,`)
+//line app/vmselect/prometheus/export.qtpl:109
+					qw422016.N().S(writeNanAs)
+//line app/vmselect/prometheus/export.qtpl:109
+				} else {
+//line app/vmselect/prometheus/export.qtpl:109
+					qw422016.N().F(v)
+//line app/vmselect/prometheus/export.qtpl:109
+				}
 //line app/vmselect/prometheus/export.qtpl:110
+			}
+//line app/vmselect/prometheus/export.qtpl:111
+		}
+//line app/vmselect/prometheus/export.qtpl:112
+	}
+//line app/vmselect/prometheus/export.qtpl:112
+	qw422016.N().S(`],"timestamps":[`)
+//line app/vmselect/prometheus/export.qtpl:115
+	if len(xb.timestamps) > 0 {
+//line app/vmselect/prometheus/export.qtpl:116
 		timestamps := xb.timestamps
 
-//line app/vmselect/prometheus/export.qtpl:111
+//line app/vmselect/prometheus/export.qtpl:117
 		qw422016.N().DL(timestamps[0])
-//line app/vmselect/prometheus/export.qtpl:112
+//line app/vmselect/prometheus/export.qtpl:118
 		timestamps = timestamps[1:]
 
-//line app/vmselect/prometheus/export.qtpl:113
-		for _, ts := range timestamps {
-//line app/vmselect/prometheus/export.qtpl:113
-			qw422016.N().S(`,`)
-//line app/vmselect/prometheus/export.qtpl:114
-			qw422016.N().DL(ts)
-//line app/vmselect/prometheus/export.qtpl:115
+//line app/vmselect/prometheus/export.qtpl:119
+		if writeNanAs != "" || len(nanIndices) == 0 {
+//line app/vmselect/prometheus/export.qtpl:120
+			for _, ts := range timestamps {
+//line app/vmselect/prometheus/export.qtpl:120
+				qw422016.N().S(`,`)
+//line app/vmselect/prometheus/export.qtpl:121
+				qw422016.N().DL(ts)
+//line app/vmselect/prometheus/export.qtpl:122
+			}
+//line app/vmselect/prometheus/export.qtpl:123
+		} else {
+//line app/vmselect/prometheus/export.qtpl:124
+			for i, ts := range timestamps {
+//line app/vmselect/prometheus/export.qtpl:125
+				if len(nanIndices) > 0 && i == nanIndices[0] {
+//line app/vmselect/prometheus/export.qtpl:126
+					nanIndices = nanIndices[1:]
+
+//line app/vmselect/prometheus/export.qtpl:127
+				} else {
+//line app/vmselect/prometheus/export.qtpl:127
+					qw422016.N().S(`,`)
+//line app/vmselect/prometheus/export.qtpl:128
+					qw422016.N().DL(ts)
+//line app/vmselect/prometheus/export.qtpl:129
+				}
+//line app/vmselect/prometheus/export.qtpl:130
+			}
+//line app/vmselect/prometheus/export.qtpl:131
 		}
-//line app/vmselect/prometheus/export.qtpl:116
+//line app/vmselect/prometheus/export.qtpl:132
 	}
-//line app/vmselect/prometheus/export.qtpl:116
+//line app/vmselect/prometheus/export.qtpl:132
 	qw422016.N().S(`]}`)
-//line app/vmselect/prometheus/export.qtpl:118
+//line app/vmselect/prometheus/export.qtpl:134
 	qw422016.N().S(`
 `)
-//line app/vmselect/prometheus/export.qtpl:119
+//line app/vmselect/prometheus/export.qtpl:135
 }
-
-//line app/vmselect/prometheus/export.qtpl:119
-func WriteExportJSONLine(qq422016 qtio422016.Writer, xb *exportBlock) {
-//line app/vmselect/prometheus/export.qtpl:119
-	qw422016 := qt422016.AcquireWriter(qq422016)
-//line app/vmselect/prometheus/export.qtpl:119
-	StreamExportJSONLine(qw422016, xb)
-//line app/vmselect/prometheus/export.qtpl:119
-	qt422016.ReleaseWriter(qw422016)
-//line app/vmselect/prometheus/export.qtpl:119
-}
-
-//line app/vmselect/prometheus/export.qtpl:119
-func ExportJSONLine(xb *exportBlock) string {
-//line app/vmselect/prometheus/export.qtpl:119
-	qb422016 := qt422016.AcquireByteBuffer()
-//line app/vmselect/prometheus/export.qtpl:119
-	WriteExportJSONLine(qb422016, xb)
-//line app/vmselect/prometheus/export.qtpl:119
-	qs422016 := string(qb422016.B)
-//line app/vmselect/prometheus/export.qtpl:119
-	qt422016.ReleaseByteBuffer(qb422016)
-//line app/vmselect/prometheus/export.qtpl:119
-	return qs422016
-//line app/vmselect/prometheus/export.qtpl:119
-}
-
-//line app/vmselect/prometheus/export.qtpl:121
-func StreamExportPromAPILine(qw422016 *qt422016.Writer, xb *exportBlock) {
-//line app/vmselect/prometheus/export.qtpl:121
-	qw422016.N().S(`{"metric":`)
-//line app/vmselect/prometheus/export.qtpl:123
-	streammetricNameObject(qw422016, xb.mn)
-//line app/vmselect/prometheus/export.qtpl:123
-	qw422016.N().S(`,"values":`)
-//line app/vmselect/prometheus/export.qtpl:124
-	streamvaluesWithTimestamps(qw422016, xb.values, xb.timestamps)
-//line app/vmselect/prometheus/export.qtpl:124
-	qw422016.N().S(`}`)
-//line app/vmselect/prometheus/export.qtpl:126
-}
-
-//line app/vmselect/prometheus/export.qtpl:126
-func WriteExportPromAPILine(qq422016 qtio422016.Writer, xb *exportBlock) {
-//line app/vmselect/prometheus/export.qtpl:126
-	qw422016 := qt422016.AcquireWriter(qq422016)
-//line app/vmselect/prometheus/export.qtpl:126
-	StreamExportPromAPILine(qw422016, xb)
-//line app/vmselect/prometheus/export.qtpl:126
-	qt422016.ReleaseWriter(qw422016)
-//line app/vmselect/prometheus/export.qtpl:126
-}
-
-//line app/vmselect/prometheus/export.qtpl:126
-func ExportPromAPILine(xb *exportBlock) string {
-//line app/vmselect/prometheus/export.qtpl:126
-	qb422016 := qt422016.AcquireByteBuffer()
-//line app/vmselect/prometheus/export.qtpl:126
-	WriteExportPromAPILine(qb422016, xb)
-//line app/vmselect/prometheus/export.qtpl:126
-	qs422016 := string(qb422016.B)
-//line app/vmselect/prometheus/export.qtpl:126
-	qt422016.ReleaseByteBuffer(qb422016)
-//line app/vmselect/prometheus/export.qtpl:126
-	return qs422016
-//line app/vmselect/prometheus/export.qtpl:126
-}
-
-//line app/vmselect/prometheus/export.qtpl:128
-func StreamExportPromAPIResponse(qw422016 *qt422016.Writer, resultsCh <-chan *quicktemplate.ByteBuffer) {
-//line app/vmselect/prometheus/export.qtpl:128
-	qw422016.N().S(`{"status":"success","data":{"resultType":"matrix","result":[`)
-//line app/vmselect/prometheus/export.qtpl:134
-	bb, ok := <-resultsCh
 
 //line app/vmselect/prometheus/export.qtpl:135
-	if ok {
-//line app/vmselect/prometheus/export.qtpl:136
-		qw422016.N().Z(bb.B)
+func WriteExportJSONLine(qq422016 qtio422016.Writer, xb *exportBlock, writeNanAs string, nanIndices []int) {
+//line app/vmselect/prometheus/export.qtpl:135
+	qw422016 := qt422016.AcquireWriter(qq422016)
+//line app/vmselect/prometheus/export.qtpl:135
+	StreamExportJSONLine(qw422016, xb, writeNanAs, nanIndices)
+//line app/vmselect/prometheus/export.qtpl:135
+	qt422016.ReleaseWriter(qw422016)
+//line app/vmselect/prometheus/export.qtpl:135
+}
+
+//line app/vmselect/prometheus/export.qtpl:135
+func ExportJSONLine(xb *exportBlock, writeNanAs string, nanIndices []int) string {
+//line app/vmselect/prometheus/export.qtpl:135
+	qb422016 := qt422016.AcquireByteBuffer()
+//line app/vmselect/prometheus/export.qtpl:135
+	WriteExportJSONLine(qb422016, xb, writeNanAs, nanIndices)
+//line app/vmselect/prometheus/export.qtpl:135
+	qs422016 := string(qb422016.B)
+//line app/vmselect/prometheus/export.qtpl:135
+	qt422016.ReleaseByteBuffer(qb422016)
+//line app/vmselect/prometheus/export.qtpl:135
+	return qs422016
+//line app/vmselect/prometheus/export.qtpl:135
+}
+
 //line app/vmselect/prometheus/export.qtpl:137
+func StreamExportPromAPILine(qw422016 *qt422016.Writer, xb *exportBlock) {
+//line app/vmselect/prometheus/export.qtpl:137
+	qw422016.N().S(`{"metric":`)
+//line app/vmselect/prometheus/export.qtpl:139
+	streammetricNameObject(qw422016, xb.mn)
+//line app/vmselect/prometheus/export.qtpl:139
+	qw422016.N().S(`,"values":`)
+//line app/vmselect/prometheus/export.qtpl:140
+	streamvaluesWithTimestamps(qw422016, xb.values, xb.timestamps)
+//line app/vmselect/prometheus/export.qtpl:140
+	qw422016.N().S(`}`)
+//line app/vmselect/prometheus/export.qtpl:142
+}
+
+//line app/vmselect/prometheus/export.qtpl:142
+func WriteExportPromAPILine(qq422016 qtio422016.Writer, xb *exportBlock) {
+//line app/vmselect/prometheus/export.qtpl:142
+	qw422016 := qt422016.AcquireWriter(qq422016)
+//line app/vmselect/prometheus/export.qtpl:142
+	StreamExportPromAPILine(qw422016, xb)
+//line app/vmselect/prometheus/export.qtpl:142
+	qt422016.ReleaseWriter(qw422016)
+//line app/vmselect/prometheus/export.qtpl:142
+}
+
+//line app/vmselect/prometheus/export.qtpl:142
+func ExportPromAPILine(xb *exportBlock) string {
+//line app/vmselect/prometheus/export.qtpl:142
+	qb422016 := qt422016.AcquireByteBuffer()
+//line app/vmselect/prometheus/export.qtpl:142
+	WriteExportPromAPILine(qb422016, xb)
+//line app/vmselect/prometheus/export.qtpl:142
+	qs422016 := string(qb422016.B)
+//line app/vmselect/prometheus/export.qtpl:142
+	qt422016.ReleaseByteBuffer(qb422016)
+//line app/vmselect/prometheus/export.qtpl:142
+	return qs422016
+//line app/vmselect/prometheus/export.qtpl:142
+}
+
+//line app/vmselect/prometheus/export.qtpl:144
+func StreamExportPromAPIResponse(qw422016 *qt422016.Writer, resultsCh <-chan *quicktemplate.ByteBuffer) {
+//line app/vmselect/prometheus/export.qtpl:144
+	qw422016.N().S(`{"status":"success","data":{"resultType":"matrix","result":[`)
+//line app/vmselect/prometheus/export.qtpl:150
+	bb, ok := <-resultsCh
+
+//line app/vmselect/prometheus/export.qtpl:151
+	if ok {
+//line app/vmselect/prometheus/export.qtpl:152
+		qw422016.N().Z(bb.B)
+//line app/vmselect/prometheus/export.qtpl:153
 		quicktemplate.ReleaseByteBuffer(bb)
 
-//line app/vmselect/prometheus/export.qtpl:138
+//line app/vmselect/prometheus/export.qtpl:154
 		for bb := range resultsCh {
-//line app/vmselect/prometheus/export.qtpl:138
+//line app/vmselect/prometheus/export.qtpl:154
 			qw422016.N().S(`,`)
-//line app/vmselect/prometheus/export.qtpl:139
+//line app/vmselect/prometheus/export.qtpl:155
 			qw422016.N().Z(bb.B)
-//line app/vmselect/prometheus/export.qtpl:140
+//line app/vmselect/prometheus/export.qtpl:156
 			quicktemplate.ReleaseByteBuffer(bb)
 
-//line app/vmselect/prometheus/export.qtpl:141
+//line app/vmselect/prometheus/export.qtpl:157
 		}
-//line app/vmselect/prometheus/export.qtpl:142
+//line app/vmselect/prometheus/export.qtpl:158
 	}
-//line app/vmselect/prometheus/export.qtpl:142
+//line app/vmselect/prometheus/export.qtpl:158
 	qw422016.N().S(`]}}`)
-//line app/vmselect/prometheus/export.qtpl:146
+//line app/vmselect/prometheus/export.qtpl:162
 }
-
-//line app/vmselect/prometheus/export.qtpl:146
-func WriteExportPromAPIResponse(qq422016 qtio422016.Writer, resultsCh <-chan *quicktemplate.ByteBuffer) {
-//line app/vmselect/prometheus/export.qtpl:146
-	qw422016 := qt422016.AcquireWriter(qq422016)
-//line app/vmselect/prometheus/export.qtpl:146
-	StreamExportPromAPIResponse(qw422016, resultsCh)
-//line app/vmselect/prometheus/export.qtpl:146
-	qt422016.ReleaseWriter(qw422016)
-//line app/vmselect/prometheus/export.qtpl:146
-}
-
-//line app/vmselect/prometheus/export.qtpl:146
-func ExportPromAPIResponse(resultsCh <-chan *quicktemplate.ByteBuffer) string {
-//line app/vmselect/prometheus/export.qtpl:146
-	qb422016 := qt422016.AcquireByteBuffer()
-//line app/vmselect/prometheus/export.qtpl:146
-	WriteExportPromAPIResponse(qb422016, resultsCh)
-//line app/vmselect/prometheus/export.qtpl:146
-	qs422016 := string(qb422016.B)
-//line app/vmselect/prometheus/export.qtpl:146
-	qt422016.ReleaseByteBuffer(qb422016)
-//line app/vmselect/prometheus/export.qtpl:146
-	return qs422016
-//line app/vmselect/prometheus/export.qtpl:146
-}
-
-//line app/vmselect/prometheus/export.qtpl:148
-func StreamExportStdResponse(qw422016 *qt422016.Writer, resultsCh <-chan *quicktemplate.ByteBuffer) {
-//line app/vmselect/prometheus/export.qtpl:149
-	for bb := range resultsCh {
-//line app/vmselect/prometheus/export.qtpl:150
-		qw422016.N().Z(bb.B)
-//line app/vmselect/prometheus/export.qtpl:151
-		quicktemplate.ReleaseByteBuffer(bb)
-
-//line app/vmselect/prometheus/export.qtpl:152
-	}
-//line app/vmselect/prometheus/export.qtpl:153
-}
-
-//line app/vmselect/prometheus/export.qtpl:153
-func WriteExportStdResponse(qq422016 qtio422016.Writer, resultsCh <-chan *quicktemplate.ByteBuffer) {
-//line app/vmselect/prometheus/export.qtpl:153
-	qw422016 := qt422016.AcquireWriter(qq422016)
-//line app/vmselect/prometheus/export.qtpl:153
-	StreamExportStdResponse(qw422016, resultsCh)
-//line app/vmselect/prometheus/export.qtpl:153
-	qt422016.ReleaseWriter(qw422016)
-//line app/vmselect/prometheus/export.qtpl:153
-}
-
-//line app/vmselect/prometheus/export.qtpl:153
-func ExportStdResponse(resultsCh <-chan *quicktemplate.ByteBuffer) string {
-//line app/vmselect/prometheus/export.qtpl:153
-	qb422016 := qt422016.AcquireByteBuffer()
-//line app/vmselect/prometheus/export.qtpl:153
-	WriteExportStdResponse(qb422016, resultsCh)
-//line app/vmselect/prometheus/export.qtpl:153
-	qs422016 := string(qb422016.B)
-//line app/vmselect/prometheus/export.qtpl:153
-	qt422016.ReleaseByteBuffer(qb422016)
-//line app/vmselect/prometheus/export.qtpl:153
-	return qs422016
-//line app/vmselect/prometheus/export.qtpl:153
-}
-
-//line app/vmselect/prometheus/export.qtpl:155
-func streamprometheusMetricName(qw422016 *qt422016.Writer, mn *storage.MetricName) {
-//line app/vmselect/prometheus/export.qtpl:156
-	qw422016.N().Z(mn.MetricGroup)
-//line app/vmselect/prometheus/export.qtpl:157
-	if len(mn.Tags) > 0 {
-//line app/vmselect/prometheus/export.qtpl:157
-		qw422016.N().S(`{`)
-//line app/vmselect/prometheus/export.qtpl:159
-		tags := mn.Tags
-
-//line app/vmselect/prometheus/export.qtpl:160
-		qw422016.N().Z(tags[0].Key)
-//line app/vmselect/prometheus/export.qtpl:160
-		qw422016.N().S(`=`)
-//line app/vmselect/prometheus/export.qtpl:160
-		qw422016.N().QZ(tags[0].Value)
-//line app/vmselect/prometheus/export.qtpl:161
-		tags = tags[1:]
 
 //line app/vmselect/prometheus/export.qtpl:162
+func WriteExportPromAPIResponse(qq422016 qtio422016.Writer, resultsCh <-chan *quicktemplate.ByteBuffer) {
+//line app/vmselect/prometheus/export.qtpl:162
+	qw422016 := qt422016.AcquireWriter(qq422016)
+//line app/vmselect/prometheus/export.qtpl:162
+	StreamExportPromAPIResponse(qw422016, resultsCh)
+//line app/vmselect/prometheus/export.qtpl:162
+	qt422016.ReleaseWriter(qw422016)
+//line app/vmselect/prometheus/export.qtpl:162
+}
+
+//line app/vmselect/prometheus/export.qtpl:162
+func ExportPromAPIResponse(resultsCh <-chan *quicktemplate.ByteBuffer) string {
+//line app/vmselect/prometheus/export.qtpl:162
+	qb422016 := qt422016.AcquireByteBuffer()
+//line app/vmselect/prometheus/export.qtpl:162
+	WriteExportPromAPIResponse(qb422016, resultsCh)
+//line app/vmselect/prometheus/export.qtpl:162
+	qs422016 := string(qb422016.B)
+//line app/vmselect/prometheus/export.qtpl:162
+	qt422016.ReleaseByteBuffer(qb422016)
+//line app/vmselect/prometheus/export.qtpl:162
+	return qs422016
+//line app/vmselect/prometheus/export.qtpl:162
+}
+
+//line app/vmselect/prometheus/export.qtpl:164
+func StreamExportStdResponse(qw422016 *qt422016.Writer, resultsCh <-chan *quicktemplate.ByteBuffer) {
+//line app/vmselect/prometheus/export.qtpl:165
+	for bb := range resultsCh {
+//line app/vmselect/prometheus/export.qtpl:166
+		qw422016.N().Z(bb.B)
+//line app/vmselect/prometheus/export.qtpl:167
+		quicktemplate.ReleaseByteBuffer(bb)
+
+//line app/vmselect/prometheus/export.qtpl:168
+	}
+//line app/vmselect/prometheus/export.qtpl:169
+}
+
+//line app/vmselect/prometheus/export.qtpl:169
+func WriteExportStdResponse(qq422016 qtio422016.Writer, resultsCh <-chan *quicktemplate.ByteBuffer) {
+//line app/vmselect/prometheus/export.qtpl:169
+	qw422016 := qt422016.AcquireWriter(qq422016)
+//line app/vmselect/prometheus/export.qtpl:169
+	StreamExportStdResponse(qw422016, resultsCh)
+//line app/vmselect/prometheus/export.qtpl:169
+	qt422016.ReleaseWriter(qw422016)
+//line app/vmselect/prometheus/export.qtpl:169
+}
+
+//line app/vmselect/prometheus/export.qtpl:169
+func ExportStdResponse(resultsCh <-chan *quicktemplate.ByteBuffer) string {
+//line app/vmselect/prometheus/export.qtpl:169
+	qb422016 := qt422016.AcquireByteBuffer()
+//line app/vmselect/prometheus/export.qtpl:169
+	WriteExportStdResponse(qb422016, resultsCh)
+//line app/vmselect/prometheus/export.qtpl:169
+	qs422016 := string(qb422016.B)
+//line app/vmselect/prometheus/export.qtpl:169
+	qt422016.ReleaseByteBuffer(qb422016)
+//line app/vmselect/prometheus/export.qtpl:169
+	return qs422016
+//line app/vmselect/prometheus/export.qtpl:169
+}
+
+//line app/vmselect/prometheus/export.qtpl:171
+func streamprometheusMetricName(qw422016 *qt422016.Writer, mn *storage.MetricName) {
+//line app/vmselect/prometheus/export.qtpl:172
+	qw422016.N().Z(mn.MetricGroup)
+//line app/vmselect/prometheus/export.qtpl:173
+	if len(mn.Tags) > 0 {
+//line app/vmselect/prometheus/export.qtpl:173
+		qw422016.N().S(`{`)
+//line app/vmselect/prometheus/export.qtpl:175
+		tags := mn.Tags
+
+//line app/vmselect/prometheus/export.qtpl:176
+		qw422016.N().Z(tags[0].Key)
+//line app/vmselect/prometheus/export.qtpl:176
+		qw422016.N().S(`=`)
+//line app/vmselect/prometheus/export.qtpl:176
+		qw422016.N().QZ(tags[0].Value)
+//line app/vmselect/prometheus/export.qtpl:177
+		tags = tags[1:]
+
+//line app/vmselect/prometheus/export.qtpl:178
 		for i := range tags {
-//line app/vmselect/prometheus/export.qtpl:163
+//line app/vmselect/prometheus/export.qtpl:179
 			tag := &tags[i]
 
-//line app/vmselect/prometheus/export.qtpl:163
+//line app/vmselect/prometheus/export.qtpl:179
 			qw422016.N().S(`,`)
-//line app/vmselect/prometheus/export.qtpl:164
+//line app/vmselect/prometheus/export.qtpl:180
 			qw422016.N().Z(tag.Key)
-//line app/vmselect/prometheus/export.qtpl:164
+//line app/vmselect/prometheus/export.qtpl:180
 			qw422016.N().S(`=`)
-//line app/vmselect/prometheus/export.qtpl:164
+//line app/vmselect/prometheus/export.qtpl:180
 			qw422016.N().QZ(tag.Value)
-//line app/vmselect/prometheus/export.qtpl:165
+//line app/vmselect/prometheus/export.qtpl:181
 		}
-//line app/vmselect/prometheus/export.qtpl:165
+//line app/vmselect/prometheus/export.qtpl:181
 		qw422016.N().S(`}`)
-//line app/vmselect/prometheus/export.qtpl:167
+//line app/vmselect/prometheus/export.qtpl:183
 	}
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 }
 
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 func writeprometheusMetricName(qq422016 qtio422016.Writer, mn *storage.MetricName) {
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 	qw422016 := qt422016.AcquireWriter(qq422016)
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 	streamprometheusMetricName(qw422016, mn)
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 	qt422016.ReleaseWriter(qw422016)
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 }
 
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 func prometheusMetricName(mn *storage.MetricName) string {
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 	qb422016 := qt422016.AcquireByteBuffer()
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 	writeprometheusMetricName(qb422016, mn)
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 	qs422016 := string(qb422016.B)
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 	qt422016.ReleaseByteBuffer(qb422016)
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 	return qs422016
-//line app/vmselect/prometheus/export.qtpl:168
+//line app/vmselect/prometheus/export.qtpl:184
 }
