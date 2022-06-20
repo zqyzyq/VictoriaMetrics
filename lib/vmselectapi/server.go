@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -866,10 +867,26 @@ func (s *Server) processSearch(ctx *vmselectRequestCtx) error {
 
 	// Send found blocks to vmselect.
 	blocksRead := 0
+	mn := storage.GetMetricName()
+	defer storage.PutMetricName(mn)
 	for bi.NextBlock(&ctx.mb) {
 		blocksRead++
 		s.metricBlocksRead.Inc()
 		s.metricRowsRead.Add(ctx.mb.Block.RowsCount())
+		ctx.mb.GenerationID = 0
+		mn.Reset()
+		if err := mn.Unmarshal(ctx.mb.MetricName); err != nil {
+			return fmt.Errorf("cannot unmarshal metricName: %q %w", ctx.mb.MetricName, err)
+		}
+		generationIDTag := mn.RemoveTagWithResult(`__generation_id`)
+		if generationIDTag != nil {
+			id, err := strconv.ParseInt(string(generationIDTag.Value), 10, 64)
+			if err != nil {
+				return fmt.Errorf("cannot parse __generation_id label value: %s : %w", generationIDTag.Value, err)
+			}
+			ctx.mb.GenerationID = id
+			ctx.mb.MetricName = mn.Marshal(ctx.mb.MetricName[:0])
+		}
 
 		ctx.dataBuf = ctx.mb.Marshal(ctx.dataBuf[:0])
 		if err := ctx.writeDataBufBytes(); err != nil {
