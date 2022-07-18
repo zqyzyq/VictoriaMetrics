@@ -21,6 +21,7 @@ import (
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promauth"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompbmarshal"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promrelabel"
+	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/azure"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/consul"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/digitalocean"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/dns"
@@ -35,7 +36,7 @@ import (
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promutils"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/proxy"
 	"github.com/VictoriaMetrics/metrics"
-	xxhash "github.com/cespare/xxhash/v2"
+	"github.com/cespare/xxhash/v2"
 	"gopkg.in/yaml.v2"
 )
 
@@ -56,6 +57,9 @@ var (
 		"Can be specified as pod name of Kubernetes StatefulSet - pod-name-Num, where Num is a numeric part of pod name")
 	clusterReplicationFactor = flag.Int("promscrape.cluster.replicationFactor", 1, "The number of members in the cluster, which scrape the same targets. "+
 		"If the replication factor is greater than 1, then the deduplication must be enabled at remote storage side. See https://docs.victoriametrics.com/#deduplication")
+	clusterName = flag.String("promscrape.cluster.name", "", "Optional name of the cluster. If multiple vmagent clusters scrape the same targets, "+
+		"then each cluster must have unique name in order to properly de-duplicate samples received from these clusters. "+
+		"See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2679")
 )
 
 var clusterMemberID int
@@ -126,6 +130,10 @@ func (cfg *Config) mustRestart(prevCfg *Config) {
 		prevScrapeCfgByName[scPrev.JobName] = scPrev
 	}
 
+	// Restart all the scrape jobs on Global config change.
+	// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2884
+	needGlobalRestart := !areEqualGlobalConfigs(&cfg.Global, &prevCfg.Global)
+
 	// Loop over the the new jobs, start new ones and restart updated ones.
 	var started, stopped, restarted int
 	currentJobNames := make(map[string]struct{}, len(cfg.ScrapeConfigs))
@@ -138,7 +146,7 @@ func (cfg *Config) mustRestart(prevCfg *Config) {
 			started++
 			continue
 		}
-		if areEqualScrapeConfigs(scPrev, sc) {
+		if !needGlobalRestart && areEqualScrapeConfigs(scPrev, sc) {
 			// The scrape config didn't change, so no need to restart it.
 			// Use the reference to the previous job, so it could be stopped properly later.
 			cfg.ScrapeConfigs[i] = scPrev
@@ -161,6 +169,12 @@ func (cfg *Config) mustRestart(prevCfg *Config) {
 	logger.Infof("restarted service discovery routines in %.3f seconds, stopped=%d, started=%d, restarted=%d", time.Since(startTime).Seconds(), stopped, started, restarted)
 }
 
+func areEqualGlobalConfigs(a, b *GlobalConfig) bool {
+	sa := a.marshalJSON()
+	sb := b.marshalJSON()
+	return string(sa) == string(sb)
+}
+
 func areEqualScrapeConfigs(a, b *ScrapeConfig) bool {
 	sa := a.marshalJSON()
 	sb := b.marshalJSON()
@@ -175,6 +189,14 @@ func (sc *ScrapeConfig) marshalJSON() []byte {
 	data, err := json.Marshal(sc)
 	if err != nil {
 		logger.Panicf("BUG: cannot marshal ScrapeConfig: %s", err)
+	}
+	return data
+}
+
+func (gc *GlobalConfig) marshalJSON() []byte {
+	data, err := json.Marshal(gc)
+	if err != nil {
+		logger.Panicf("BUG: cannot marshal GlobalConfig: %s", err)
 	}
 	return data
 }
@@ -225,6 +247,7 @@ type ScrapeConfig struct {
 	MetricRelabelConfigs []promrelabel.RelabelConfig `yaml:"metric_relabel_configs,omitempty"`
 	SampleLimit          int                         `yaml:"sample_limit,omitempty"`
 
+	AzureSDConfigs        []azure.SDConfig        `yaml:"azure_sd_configs,omitempty"`
 	ConsulSDConfigs       []consul.SDConfig       `yaml:"consul_sd_configs,omitempty"`
 	DigitaloceanSDConfigs []digitalocean.SDConfig `yaml:"digitalocean_sd_configs,omitempty"`
 	DNSSDConfigs          []dns.SDConfig          `yaml:"dns_sd_configs,omitempty"`
@@ -270,6 +293,9 @@ func (sc *ScrapeConfig) mustStart(baseDir string) {
 }
 
 func (sc *ScrapeConfig) mustStop() {
+	for i := range sc.AzureSDConfigs {
+		sc.AzureSDConfigs[i].MustStop()
+	}
 	for i := range sc.ConsulSDConfigs {
 		sc.ConsulSDConfigs[i].MustStop()
 	}
@@ -445,6 +471,33 @@ func getSWSByJob(sws []*ScrapeWork) map[string][]*ScrapeWork {
 		m[sw.jobNameOriginal] = append(m[sw.jobNameOriginal], sw)
 	}
 	return m
+}
+
+// getAzureSDScrapeWork returns `azure_sd_configs` ScrapeWork from cfg.
+func (cfg *Config) getAzureSDScrapeWork(prev []*ScrapeWork) []*ScrapeWork {
+	swsPrevByJob := getSWSByJob(prev)
+	dst := make([]*ScrapeWork, 0, len(prev))
+	for _, sc := range cfg.ScrapeConfigs {
+		dstLen := len(dst)
+		ok := true
+		for j := range sc.AzureSDConfigs {
+			sdc := &sc.AzureSDConfigs[j]
+			var okLocal bool
+			dst, okLocal = appendSDScrapeWork(dst, sdc, cfg.baseDir, sc.swc, "azure_sd_config")
+			if ok {
+				ok = okLocal
+			}
+		}
+		if ok {
+			continue
+		}
+		swsPrev := swsPrevByJob[sc.swc.jobName]
+		if len(swsPrev) > 0 {
+			logger.Errorf("there were errors when discovering azure targets for job %q, so preserving the previous targets", sc.swc.jobName)
+			dst = append(dst[:dstLen], swsPrev...)
+		}
+	}
+	return dst
 }
 
 // getConsulSDScrapeWork returns `consul_sd_configs` ScrapeWork from cfg.
@@ -1140,7 +1193,7 @@ func (swc *scrapeWorkConfig) getScrapeWork(target string, extraLabels, metaLabel
 		droppedTargetsMap.Register(originalLabels)
 		return nil, nil
 	}
-	addressRelabeled = addMissingPort(schemeRelabeled, addressRelabeled)
+	addressRelabeled = addMissingPort(addressRelabeled, schemeRelabeled == "https")
 	metricsPathRelabeled := promrelabel.GetLabelValueByName(labels, "__metrics_path__")
 	if metricsPathRelabeled == "" {
 		metricsPathRelabeled = "/metrics"
@@ -1355,18 +1408,6 @@ func appendLabel(dst []prompbmarshal.Label, name, value string) []prompbmarshal.
 		Name:  name,
 		Value: value,
 	})
-}
-
-func addMissingPort(scheme, target string) string {
-	if strings.Contains(target, ":") {
-		return target
-	}
-	if scheme == "https" {
-		target += ":443"
-	} else {
-		target += ":80"
-	}
-	return target
 }
 
 const (

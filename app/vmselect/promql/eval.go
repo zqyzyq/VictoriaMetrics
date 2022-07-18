@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmselect/netstorage"
 	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmselect/searchutils"
@@ -161,6 +162,12 @@ func (ec *EvalConfig) mayCache() bool {
 	return true
 }
 
+func (ec *EvalConfig) timeRangeString() string {
+	start := storage.TimestampToHumanReadableFormat(ec.Start)
+	end := storage.TimestampToHumanReadableFormat(ec.End)
+	return fmt.Sprintf("[%s..%s]", start, end)
+}
+
 func (ec *EvalConfig) getSharedTimestamps() []int64 {
 	ec.timestampsOnce.Do(ec.timestampsInit)
 	return ec.timestamps
@@ -193,22 +200,24 @@ func getTimestamps(start, end, step int64) []int64 {
 }
 
 func evalExpr(qt *querytracer.Tracer, ec *EvalConfig, e metricsql.Expr) ([]*timeseries, error) {
-	qt = qt.NewChild()
+	if qt.Enabled() {
+		query := string(e.AppendString(nil))
+		query = bytesutil.LimitStringLen(query, 300)
+		mayCache := ec.mayCache()
+		qt = qt.NewChild("eval: query=%s, timeRange=%s, step=%d, mayCache=%v", query, ec.timeRangeString(), ec.Step, mayCache)
+	}
 	rv, err := evalExprInternal(qt, ec, e)
 	if err != nil {
 		return nil, err
 	}
 	if qt.Enabled() {
-		query := e.AppendString(nil)
 		seriesCount := len(rv)
 		pointsPerSeries := 0
 		if len(rv) > 0 {
 			pointsPerSeries = len(rv[0].Timestamps)
 		}
 		pointsCount := seriesCount * pointsPerSeries
-		mayCache := ec.mayCache()
-		qt.Donef("eval: query=%s, timeRange=[%d..%d], step=%d, mayCache=%v: series=%d, points=%d, pointsPerSeries=%d",
-			query, ec.Start, ec.End, ec.Step, mayCache, seriesCount, pointsCount, pointsPerSeries)
+		qt.Donef("series=%d, points=%d, pointsPerSeries=%d", seriesCount, pointsCount, pointsPerSeries)
 	}
 	return rv, nil
 }
@@ -234,9 +243,9 @@ func evalExprInternal(qt *querytracer.Tracer, ec *EvalConfig, e metricsql.Expr) 
 	if fe, ok := e.(*metricsql.FuncExpr); ok {
 		nrf := getRollupFunc(fe.Name)
 		if nrf == nil {
-			qtChild := qt.NewChild()
+			qtChild := qt.NewChild("transform %s()", fe.Name)
 			rv, err := evalTransformFunc(qtChild, ec, fe)
-			qtChild.Donef("transform %s(): series=%d", fe.Name, len(rv))
+			qtChild.Donef("series=%d", len(rv))
 			return rv, err
 		}
 		args, re, err := evalRollupFuncArgs(qt, ec, fe)
@@ -254,15 +263,15 @@ func evalExprInternal(qt *querytracer.Tracer, ec *EvalConfig, e metricsql.Expr) 
 		return rv, nil
 	}
 	if ae, ok := e.(*metricsql.AggrFuncExpr); ok {
-		qtChild := qt.NewChild()
+		qtChild := qt.NewChild("aggregate %s()", ae.Name)
 		rv, err := evalAggrFunc(qtChild, ec, ae)
-		qtChild.Donef("aggregate %s(): series=%d", ae.Name, len(rv))
+		qtChild.Donef("series=%d", len(rv))
 		return rv, err
 	}
 	if be, ok := e.(*metricsql.BinaryOpExpr); ok {
-		qtChild := qt.NewChild()
+		qtChild := qt.NewChild("binary op %q", be.Op)
 		rv, err := evalBinaryOp(qtChild, ec, be)
-		qtChild.Donef("binary op %q: series=%d", be.Op, len(rv))
+		qtChild.Donef("series=%d", len(rv))
 		return rv, err
 	}
 	if ne, ok := e.(*metricsql.NumberExpr); ok {
@@ -283,13 +292,13 @@ func evalExprInternal(qt *querytracer.Tracer, ec *EvalConfig, e metricsql.Expr) 
 }
 
 func evalTransformFunc(qt *querytracer.Tracer, ec *EvalConfig, fe *metricsql.FuncExpr) ([]*timeseries, error) {
-	args, err := evalExprs(qt, ec, fe.Args)
-	if err != nil {
-		return nil, err
-	}
 	tf := getTransformFunc(fe.Name)
 	if tf == nil {
 		return nil, fmt.Errorf(`unknown func %q`, fe.Name)
+	}
+	args, err := evalExprs(qt, ec, fe.Args)
+	if err != nil {
+		return nil, err
 	}
 	tfa := &transformFuncArg{
 		ec:   ec,
@@ -724,8 +733,8 @@ func aggregateAbsentOverTime(ec *EvalConfig, expr metricsql.Expr, tss []*timeser
 
 func evalRollupFuncWithSubquery(qt *querytracer.Tracer, ec *EvalConfig, funcName string, rf rollupFunc, expr metricsql.Expr, re *metricsql.RollupExpr) ([]*timeseries, error) {
 	// TODO: determine whether to use rollupResultCacheV here.
-	qt = qt.NewChild()
-	defer qt.Donef("subquery")
+	qt = qt.NewChild("subquery")
+	defer qt.Done()
 	step := re.Step.Duration(ec.Step)
 	if step == 0 {
 		step = ec.Step
@@ -755,29 +764,35 @@ func evalRollupFuncWithSubquery(qt *querytracer.Tracer, ec *EvalConfig, funcName
 	}
 	tss := make([]*timeseries, 0, len(tssSQ)*len(rcs))
 	var tssLock sync.Mutex
+	var samplesScannedTotal uint64
 	keepMetricNames := getKeepMetricNames(expr)
 	doParallel(tssSQ, func(tsSQ *timeseries, values []float64, timestamps []int64) ([]float64, []int64) {
 		values, timestamps = removeNanValues(values[:0], timestamps[:0], tsSQ.Values, tsSQ.Timestamps)
 		preFunc(values, timestamps)
 		for _, rc := range rcs {
 			if tsm := newTimeseriesMap(funcName, keepMetricNames, sharedTimestamps, &tsSQ.MetricName); tsm != nil {
-				rc.DoTimeseriesMap(tsm, values, timestamps)
+				samplesScanned := rc.DoTimeseriesMap(tsm, values, timestamps)
+				atomic.AddUint64(&samplesScannedTotal, samplesScanned)
 				tssLock.Lock()
 				tss = tsm.AppendTimeseriesTo(tss)
 				tssLock.Unlock()
 				continue
 			}
 			var ts timeseries
-			doRollupForTimeseries(funcName, keepMetricNames, rc, &ts, &tsSQ.MetricName, values, timestamps, sharedTimestamps)
+			samplesScanned := doRollupForTimeseries(funcName, keepMetricNames, rc, &ts, &tsSQ.MetricName, values, timestamps, sharedTimestamps)
+			atomic.AddUint64(&samplesScannedTotal, samplesScanned)
 			tssLock.Lock()
 			tss = append(tss, &ts)
 			tssLock.Unlock()
 		}
 		return values, timestamps
 	})
-	qt.Printf("rollup %s() over %d series returned by subquery: series=%d", funcName, len(tssSQ), len(tss))
+	rowsScannedPerQuery.Update(float64(samplesScannedTotal))
+	qt.Printf("rollup %s() over %d series returned by subquery: series=%d, samplesScanned=%d", funcName, len(tssSQ), len(tss), samplesScannedTotal)
 	return tss, nil
 }
+
+var rowsScannedPerQuery = metrics.NewHistogram(`vm_rows_scanned_per_query`)
 
 func getKeepMetricNames(expr metricsql.Expr) bool {
 	if ae, ok := expr.(*metricsql.AggrFuncExpr); ok {
@@ -855,10 +870,12 @@ func evalRollupFuncWithMetricExpr(qt *querytracer.Tracer, ec *EvalConfig, funcNa
 	expr metricsql.Expr, me *metricsql.MetricExpr, iafc *incrementalAggrFuncContext, windowExpr *metricsql.DurationExpr) ([]*timeseries, error) {
 	var rollupMemorySize int64
 	window := windowExpr.Duration(ec.Step)
-	qt = qt.NewChild()
-	defer func() {
-		qt.Donef("rollup %s(): timeRange=[%d..%d], step=%d, window=%d, neededMemoryBytes=%d", funcName, ec.Start, ec.End, ec.Step, window, rollupMemorySize)
-	}()
+	if qt.Enabled() {
+		qt = qt.NewChild("rollup %s(): timeRange=%s, step=%d, window=%d", funcName, ec.timeRangeString(), ec.Step, window)
+		defer func() {
+			qt.Donef("neededMemoryBytes=%d", rollupMemorySize)
+		}()
+	}
 	if me.IsEmpty() {
 		return evalNumber(ec, nan), nil
 	}
@@ -894,7 +911,7 @@ func evalRollupFuncWithMetricExpr(qt *querytracer.Tracer, ec *EvalConfig, funcNa
 		minTimestamp -= ec.Step
 	}
 	sq := storage.NewSearchQuery(minTimestamp, ec.End, tfss, ec.MaxSeries)
-	rss, err := netstorage.ProcessSearchQuery(qt, sq, true, ec.Deadline)
+	rss, err := netstorage.ProcessSearchQuery(qt, sq, ec.Deadline)
 	if err != nil {
 		return nil, err
 	}
@@ -972,8 +989,9 @@ func getRollupMemoryLimiter() *memoryLimiter {
 func evalRollupWithIncrementalAggregate(qt *querytracer.Tracer, funcName string, keepMetricNames bool,
 	iafc *incrementalAggrFuncContext, rss *netstorage.Results, rcs []*rollupConfig,
 	preFunc func(values []float64, timestamps []int64), sharedTimestamps []int64) ([]*timeseries, error) {
-	qt = qt.NewChild()
-	defer qt.Donef("rollup %s() with incremental aggregation %s() over %d series", funcName, iafc.ae.Name, rss.Len())
+	qt = qt.NewChild("rollup %s() with incremental aggregation %s() over %d series; rollupConfigs=%s", funcName, iafc.ae.Name, rss.Len(), rcs)
+	defer qt.Done()
+	var samplesScannedTotal uint64
 	err := rss.RunParallel(qt, func(rs *netstorage.Result, workerID uint) error {
 		rs.Values, rs.Timestamps = dropStaleNaNs(funcName, rs.Values, rs.Timestamps)
 		preFunc(rs.Values, rs.Timestamps)
@@ -981,14 +999,16 @@ func evalRollupWithIncrementalAggregate(qt *querytracer.Tracer, funcName string,
 		defer putTimeseries(ts)
 		for _, rc := range rcs {
 			if tsm := newTimeseriesMap(funcName, keepMetricNames, sharedTimestamps, &rs.MetricName); tsm != nil {
-				rc.DoTimeseriesMap(tsm, rs.Values, rs.Timestamps)
+				samplesScanned := rc.DoTimeseriesMap(tsm, rs.Values, rs.Timestamps)
 				for _, ts := range tsm.m {
 					iafc.updateTimeseries(ts, workerID)
 				}
+				atomic.AddUint64(&samplesScannedTotal, samplesScanned)
 				continue
 			}
 			ts.Reset()
-			doRollupForTimeseries(funcName, keepMetricNames, rc, ts, &rs.MetricName, rs.Values, rs.Timestamps, sharedTimestamps)
+			samplesScanned := doRollupForTimeseries(funcName, keepMetricNames, rc, ts, &rs.MetricName, rs.Values, rs.Timestamps, sharedTimestamps)
+			atomic.AddUint64(&samplesScannedTotal, samplesScanned)
 			iafc.updateTimeseries(ts, workerID)
 
 			// ts.Timestamps points to sharedTimestamps. Zero it, so it can be re-used.
@@ -1001,29 +1021,33 @@ func evalRollupWithIncrementalAggregate(qt *querytracer.Tracer, funcName string,
 		return nil, err
 	}
 	tss := iafc.finalizeTimeseries()
-	qt.Printf("series after aggregation with %s(): %d", iafc.ae.Name, len(tss))
+	rowsScannedPerQuery.Update(float64(samplesScannedTotal))
+	qt.Printf("series after aggregation with %s(): %d; samplesScanned=%d", iafc.ae.Name, len(tss), samplesScannedTotal)
 	return tss, nil
 }
 
 func evalRollupNoIncrementalAggregate(qt *querytracer.Tracer, funcName string, keepMetricNames bool, rss *netstorage.Results, rcs []*rollupConfig,
 	preFunc func(values []float64, timestamps []int64), sharedTimestamps []int64) ([]*timeseries, error) {
-	qt = qt.NewChild()
-	defer qt.Donef("rollup %s() over %d series", funcName, rss.Len())
+	qt = qt.NewChild("rollup %s() over %d series; rollupConfigs=%s", funcName, rss.Len(), rcs)
+	defer qt.Done()
 	tss := make([]*timeseries, 0, rss.Len()*len(rcs))
 	var tssLock sync.Mutex
+	var samplesScannedTotal uint64
 	err := rss.RunParallel(qt, func(rs *netstorage.Result, workerID uint) error {
 		rs.Values, rs.Timestamps = dropStaleNaNs(funcName, rs.Values, rs.Timestamps)
 		preFunc(rs.Values, rs.Timestamps)
 		for _, rc := range rcs {
 			if tsm := newTimeseriesMap(funcName, keepMetricNames, sharedTimestamps, &rs.MetricName); tsm != nil {
-				rc.DoTimeseriesMap(tsm, rs.Values, rs.Timestamps)
+				samplesScanned := rc.DoTimeseriesMap(tsm, rs.Values, rs.Timestamps)
+				atomic.AddUint64(&samplesScannedTotal, samplesScanned)
 				tssLock.Lock()
 				tss = tsm.AppendTimeseriesTo(tss)
 				tssLock.Unlock()
 				continue
 			}
 			var ts timeseries
-			doRollupForTimeseries(funcName, keepMetricNames, rc, &ts, &rs.MetricName, rs.Values, rs.Timestamps, sharedTimestamps)
+			samplesScanned := doRollupForTimeseries(funcName, keepMetricNames, rc, &ts, &rs.MetricName, rs.Values, rs.Timestamps, sharedTimestamps)
+			atomic.AddUint64(&samplesScannedTotal, samplesScanned)
 			tssLock.Lock()
 			tss = append(tss, &ts)
 			tssLock.Unlock()
@@ -1033,11 +1057,13 @@ func evalRollupNoIncrementalAggregate(qt *querytracer.Tracer, funcName string, k
 	if err != nil {
 		return nil, err
 	}
+	rowsScannedPerQuery.Update(float64(samplesScannedTotal))
+	qt.Printf("samplesScanned=%d", samplesScannedTotal)
 	return tss, nil
 }
 
 func doRollupForTimeseries(funcName string, keepMetricNames bool, rc *rollupConfig, tsDst *timeseries, mnSrc *storage.MetricName,
-	valuesSrc []float64, timestampsSrc []int64, sharedTimestamps []int64) {
+	valuesSrc []float64, timestampsSrc []int64, sharedTimestamps []int64) uint64 {
 	tsDst.MetricName.CopyFrom(mnSrc)
 	if len(rc.TagValue) > 0 {
 		tsDst.MetricName.AddTag("rollup", rc.TagValue)
@@ -1045,9 +1071,11 @@ func doRollupForTimeseries(funcName string, keepMetricNames bool, rc *rollupConf
 	if !keepMetricNames && !rollupFuncsKeepMetricName[funcName] {
 		tsDst.MetricName.ResetMetricGroup()
 	}
-	tsDst.Values = rc.Do(tsDst.Values[:0], valuesSrc, timestampsSrc)
+	var samplesScanned uint64
+	tsDst.Values, samplesScanned = rc.Do(tsDst.Values[:0], valuesSrc, timestampsSrc)
 	tsDst.Timestamps = sharedTimestamps
 	tsDst.denyReuse = true
+	return samplesScanned
 }
 
 var bbPool bytesutil.ByteBufferPool

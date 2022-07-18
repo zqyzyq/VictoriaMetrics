@@ -836,8 +836,7 @@ func (pt *partition) ForceMergeAllParts() error {
 	maxOutBytes := fs.MustGetFreeSpace(pt.bigPartsPath)
 	if newPartSize > maxOutBytes {
 		freeSpaceNeededBytes := newPartSize - maxOutBytes
-		logger.WithThrottler("forceMerge", time.Minute).Warnf("cannot initiate force merge for the partition %s; additional space needed: %d bytes",
-			pt.name, freeSpaceNeededBytes)
+		forceMergeLogger.Warnf("cannot initiate force merge for the partition %s; additional space needed: %d bytes", pt.name, freeSpaceNeededBytes)
 		return nil
 	}
 
@@ -847,6 +846,8 @@ func (pt *partition) ForceMergeAllParts() error {
 	}
 	return nil
 }
+
+var forceMergeLogger = logger.WithThrottler("forceMerge", time.Minute)
 
 func appendAllPartsToMerge(dst, src []*partWrapper) []*partWrapper {
 	for _, pw := range src {
@@ -869,9 +870,17 @@ func hasActiveMerges(pws []*partWrapper) bool {
 }
 
 var (
-	bigMergeWorkersCount   = (cgroup.AvailableCPUs() + 1) / 2
-	smallMergeWorkersCount = (cgroup.AvailableCPUs() + 1) / 2
+	bigMergeWorkersCount   = getDefaultMergeConcurrency(4)
+	smallMergeWorkersCount = getDefaultMergeConcurrency(8)
 )
+
+func getDefaultMergeConcurrency(max int) int {
+	v := (cgroup.AvailableCPUs() + 1) / 2
+	if v > max {
+		v = max
+	}
+	return v
+}
 
 // SetBigMergeWorkersCount sets the maximum number of concurrent mergers for big blocks.
 //

@@ -8,6 +8,7 @@ See also [case studies](https://docs.victoriametrics.com/CaseStudies.html).
 
 ## Third-party articles and slides about VictoriaMetrics
 
+* [Optimizing the Storage of Large Volumes of Metrics for a Long Time in VictoriaMetrics](https://percona.community/blog/2022/06/02/long-time-keeping-metrics-victoriametrics/)
 * [Announcing Asserts](https://www.asserts.ai/blog/announcing-asserts/)
 * [Choosing a Time Series Database for High Cardinality Aggregations](https://abiosgaming.com/press/high-cardinality-aggregations/)
 * [Scaling to trillions of metric data points](https://engineering.razorpay.com/scaling-to-trillions-of-metric-data-points-f569a5b654f2)
@@ -49,6 +50,8 @@ See also [case studies](https://docs.victoriametrics.com/CaseStudies.html).
 * [Push Prometheus metrics to VictoriaMetrics or other exporters](https://pythonawesome.com/push-prometheus-metrics-to-victoriametrics-or-other-exporters/)
 * [Install and configure VictoriaMetrics on Debian](https://www.vultr.com/docs/install-and-configure-victoriametrics-on-debian)
 * [Superset BI with Victoria Metrics](https://cer6erus.medium.com/superset-bi-with-victoria-metrics-a109d3e91bc6)
+* [VictoriaMetrics Source Code Analysis - Bloom filter](https://www.sobyte.net/post/2022-05/victoriametrics-bloomfilter/)
+* [How we tried using VictoriaMetrics and Thanos at the same time](https://habr.com/ru/company/sravni/blog/672908/)
 
 ## Our articles
 

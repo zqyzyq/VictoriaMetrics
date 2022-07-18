@@ -1,6 +1,7 @@
 package vminsert
 
 import (
+	"embed"
 	"flag"
 	"fmt"
 	"net/http"
@@ -56,6 +57,11 @@ var (
 	opentsdbhttpServer *opentsdbhttpserver.Server
 )
 
+//go:embed static
+var staticFiles embed.FS
+
+var staticServer = http.FileServer(http.FS(staticFiles))
+
 // Init initializes vminsert.
 func Init() {
 	relabel.Init()
@@ -102,6 +108,20 @@ func RequestHandler(w http.ResponseWriter, r *http.Request) bool {
 	defer requestDuration.UpdateDuration(startTime)
 
 	path := strings.Replace(r.URL.Path, "//", "/", -1)
+	if strings.HasPrefix(path, "/static") {
+		staticServer.ServeHTTP(w, r)
+		return true
+	}
+	if strings.HasPrefix(path, "/prometheus/static") {
+		r.URL.Path = strings.TrimPrefix(path, "/prometheus")
+		staticServer.ServeHTTP(w, r)
+		return true
+	}
+	if strings.HasPrefix(path, "/datadog/") {
+		// Trim suffix from paths starting from /datadog/ in order to support legacy DataDog agent.
+		// See https://github.com/VictoriaMetrics/VictoriaMetrics/pull/2670
+		path = strings.TrimSuffix(path, "/")
+	}
 	switch path {
 	case "/prometheus/api/v1/write", "/api/v1/write":
 		prometheusWriteRequests.Inc()
@@ -188,13 +208,20 @@ func RequestHandler(w http.ResponseWriter, r *http.Request) bool {
 		w.WriteHeader(202)
 		fmt.Fprintf(w, `{"status":"ok"}`)
 		return true
-	case "/datadog/intake/":
+	case "/datadog/intake":
 		datadogIntakeRequests.Inc()
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{}`)
 		return true
+	case "/datadog/api/v1/metadata":
+		datadogMetadataRequests.Inc()
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{}`)
+		return true
 	case "/opentelemetry/api/v1/push":
+		opentelemetryPushRequests.Inc()
 		if err := opentelemetryhttp.InsertHandler(r); err != nil {
+			opentelemetryPushErrors.Inc()
 			httpserver.Errorf(w, r, "%s", err)
 			return true
 		}
@@ -203,6 +230,10 @@ func RequestHandler(w http.ResponseWriter, r *http.Request) bool {
 	case "/prometheus/targets", "/targets":
 		promscrapeTargetsRequests.Inc()
 		promscrape.WriteHumanReadableTargetsStatus(w, r)
+		return true
+	case "/prometheus/service-discovery", "/service-discovery":
+		promscrapeServiceDiscoveryRequests.Inc()
+		promscrape.WriteServiceDiscovery(w, r)
 		return true
 	case "/prometheus/api/v1/targets", "/api/v1/targets":
 		promscrapeAPIV1TargetsRequests.Inc()
@@ -302,10 +333,15 @@ var (
 
 	datadogValidateRequests = metrics.NewCounter(`vm_http_requests_total{path="/datadog/api/v1/validate", protocol="datadog"}`)
 	datadogCheckRunRequests = metrics.NewCounter(`vm_http_requests_total{path="/datadog/api/v1/check_run", protocol="datadog"}`)
-	datadogIntakeRequests   = metrics.NewCounter(`vm_http_requests_total{path="/datadog/intake/", protocol="datadog"}`)
+	datadogIntakeRequests   = metrics.NewCounter(`vm_http_requests_total{path="/datadog/intake", protocol="datadog"}`)
+	datadogMetadataRequests = metrics.NewCounter(`vm_http_requests_total{path="/datadog/api/v1/metadata", protocol="datadog"}`)
 
-	promscrapeTargetsRequests      = metrics.NewCounter(`vm_http_requests_total{path="/targets"}`)
-	promscrapeAPIV1TargetsRequests = metrics.NewCounter(`vm_http_requests_total{path="/api/v1/targets"}`)
+	opentelemetryPushRequests = metrics.NewCounter(`vm_http_requests_total{path="/opentelemetry/api/v1/push", protocol="opentelemetry"}`)
+	opentelemetryPushErrors = metrics.NewCounter(`vm_http_request_errors_total{path="/opentelemetry/api/v1/push", protocol="opentelemetry"}`)
+
+	promscrapeTargetsRequests          = metrics.NewCounter(`vm_http_requests_total{path="/targets"}`)
+	promscrapeServiceDiscoveryRequests = metrics.NewCounter(`vm_http_requests_total{path="/service-discovery"}`)
+	promscrapeAPIV1TargetsRequests     = metrics.NewCounter(`vm_http_requests_total{path="/api/v1/targets"}`)
 
 	promscrapeTargetResponseRequests = metrics.NewCounter(`vm_http_requests_total{path="/target_response"}`)
 	promscrapeTargetResponseErrors   = metrics.NewCounter(`vm_http_request_errors_total{path="/target_response"}`)

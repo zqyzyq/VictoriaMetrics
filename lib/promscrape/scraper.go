@@ -12,6 +12,7 @@ import (
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/logger"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/procutil"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompbmarshal"
+	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/azure"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/consul"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/digitalocean"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/dns"
@@ -110,6 +111,7 @@ func runScraper(configFile string, pushData func(wr *prompbmarshal.WriteRequest)
 	cfg.mustStart()
 
 	scs := newScrapeConfigs(pushData, globalStopCh)
+	scs.add("azure_sd_configs", *azure.SDCheckInterval, func(cfg *Config, swsPrev []*ScrapeWork) []*ScrapeWork { return cfg.getAzureSDScrapeWork(swsPrev) })
 	scs.add("consul_sd_configs", *consul.SDCheckInterval, func(cfg *Config, swsPrev []*ScrapeWork) []*ScrapeWork { return cfg.getConsulSDScrapeWork(swsPrev) })
 	scs.add("digitalocean_sd_configs", *digitalocean.SDCheckInterval, func(cfg *Config, swsPrev []*ScrapeWork) []*ScrapeWork { return cfg.getDigitalOceanDScrapeWork(swsPrev) })
 	scs.add("dns_sd_configs", *dns.SDCheckInterval, func(cfg *Config, swsPrev []*ScrapeWork) []*ScrapeWork { return cfg.getDNSSDScrapeWork(swsPrev) })
@@ -163,6 +165,7 @@ func runScraper(configFile string, pushData func(wr *prompbmarshal.WriteRequest)
 			cfgNew.mustRestart(cfg)
 			cfg = cfgNew
 			data = dataNew
+			marshaledData = cfgNew.marshal()
 			configData.Store(&marshaledData)
 		case <-globalStopCh:
 			cfg.mustStop()
@@ -256,7 +259,11 @@ func (scfg *scrapeConfig) run(globalStopCh <-chan struct{}) {
 		sws := scfg.getScrapeWork(cfg, swsPrev)
 		sg.update(sws)
 		swsPrev = sws
-		scfg.discoveryDuration.UpdateDuration(startTime)
+		if sg.scrapersStarted.Get() > 0 {
+			// update duration only if at least one scraper has started
+			// otherwise this SD is considered as inactive
+			scfg.discoveryDuration.UpdateDuration(startTime)
+		}
 	}
 	updateScrapeWork(cfg)
 	atomic.AddInt32(&PendingScrapeConfigs, -1)

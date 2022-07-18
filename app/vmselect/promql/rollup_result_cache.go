@@ -200,10 +200,11 @@ func ResetRollupResultCache() {
 }
 
 func (rrc *rollupResultCache) Get(qt *querytracer.Tracer, ec *EvalConfig, expr metricsql.Expr, window int64) (tss []*timeseries, newStart int64) {
-	qt = qt.NewChild()
 	if qt.Enabled() {
-		query := expr.AppendString(nil)
-		defer qt.Donef("rollup cache get: query=%s, timeRange=[%d..%d], step=%d, window=%d", query, ec.Start, ec.End, ec.Step, window)
+		query := string(expr.AppendString(nil))
+		query = bytesutil.LimitStringLen(query, 300)
+		qt = qt.NewChild("rollup cache get: query=%s, timeRange=%s, step=%d, window=%d", query, ec.timeRangeString(), ec.Step, window)
+		defer qt.Done()
 	}
 	if !ec.mayCache() {
 		qt.Printf("do not fetch series from cache, since it is disabled in the current context")
@@ -289,17 +290,22 @@ func (rrc *rollupResultCache) Get(qt *querytracer.Tracer, ec *EvalConfig, expr m
 
 	timestamps = tss[0].Timestamps
 	newStart = timestamps[len(timestamps)-1] + ec.Step
-	qt.Printf("return %d series on a timeRange=[%d..%d]", len(tss), ec.Start, newStart-ec.Step)
+	if qt.Enabled() {
+		startString := storage.TimestampToHumanReadableFormat(ec.Start)
+		endString := storage.TimestampToHumanReadableFormat(newStart - ec.Step)
+		qt.Printf("return %d series on a timeRange=[%s..%s]", len(tss), startString, endString)
+	}
 	return tss, newStart
 }
 
 var resultBufPool bytesutil.ByteBufferPool
 
 func (rrc *rollupResultCache) Put(qt *querytracer.Tracer, ec *EvalConfig, expr metricsql.Expr, window int64, tss []*timeseries) {
-	qt = qt.NewChild()
 	if qt.Enabled() {
-		query := expr.AppendString(nil)
-		defer qt.Donef("rollup cache put: query=%s, timeRange=[%d..%d], step=%d, window=%d, series=%d", query, ec.Start, ec.End, ec.Step, window, len(tss))
+		query := string(expr.AppendString(nil))
+		query = bytesutil.LimitStringLen(query, 300)
+		qt = qt.NewChild("rollup cache put: query=%s, timeRange=%s, step=%d, window=%d, series=%d", query, ec.timeRangeString(), ec.Step, window, len(tss))
+		defer qt.Done()
 	}
 	if len(tss) == 0 || !ec.mayCache() {
 		qt.Printf("do not store series to cache, since it is disabled in the current context")
@@ -348,7 +354,11 @@ func (rrc *rollupResultCache) Put(qt *querytracer.Tracer, ec *EvalConfig, expr m
 	start := timestamps[0]
 	end := timestamps[len(timestamps)-1]
 	if mi.CoversTimeRange(start, end) {
-		qt.Printf("series on the given timeRange=[%d..%d] already exist in the cache", start, end)
+		if qt.Enabled() {
+			startString := storage.TimestampToHumanReadableFormat(start)
+			endString := storage.TimestampToHumanReadableFormat(end)
+			qt.Printf("series on the given timeRange=[%s..%s] already exist in the cache", startString, endString)
+		}
 		return
 	}
 
@@ -361,7 +371,11 @@ func (rrc *rollupResultCache) Put(qt *querytracer.Tracer, ec *EvalConfig, expr m
 		qt.Printf("cannot store series in the cache, since they would occupy more than %d bytes", maxMarshaledSize)
 		return
 	}
-	qt.Printf("marshal %d series on a timeRange=[%d..%d] into %d bytes", len(tss), start, end, len(resultBuf.B))
+	if qt.Enabled() {
+		startString := storage.TimestampToHumanReadableFormat(start)
+		endString := storage.TimestampToHumanReadableFormat(end)
+		qt.Printf("marshal %d series on a timeRange=[%s..%s] into %d bytes", len(tss), startString, endString, len(resultBuf.B))
+	}
 	compressedResultBuf := resultBufPool.Get()
 	defer resultBufPool.Put(compressedResultBuf)
 	compressedResultBuf.B = encoding.CompressZSTDLevel(compressedResultBuf.B[:0], resultBuf.B, 1)

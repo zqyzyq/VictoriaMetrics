@@ -494,6 +494,22 @@ rules:
     expr: sum by(job) (up == 1)
 `)
 	})
+
+	t.Run("`limit` change", func(t *testing.T) {
+		f(t, `
+name: TestGroup
+limit: 5
+rules:
+  - alert: foo
+    expr: sum by(job) (up == 1)
+`, `
+name: TestGroup
+limit: 10
+rules:
+  - alert: foo
+    expr: sum by(job) (up == 1)
+`)
+	})
 }
 
 func TestGroupParams(t *testing.T) {
@@ -528,31 +544,5 @@ rules:
   - alert: ExampleAlertAlwaysFiring
     expr: sum by(job) (up == 1)
 `, url.Values{"nocache": {"1"}, "denyPartialResponse": {"true"}})
-	})
-
-	t.Run("extra labels", func(t *testing.T) {
-		f(t, `
-name: TestGroup
-extra_filter_labels:
-  job: victoriametrics
-  env: prod
-rules:
-  - alert: ExampleAlertAlwaysFiring
-    expr: sum by(job) (up == 1)
-`, url.Values{"extra_label": {"env=prod", "job=victoriametrics"}})
-	})
-
-	t.Run("extra labels and params", func(t *testing.T) {
-		f(t, `
-name: TestGroup
-extra_filter_labels:
-  job: victoriametrics
-params:
-  nocache: ["1"]
-  extra_label: ["env=prod"]
-rules:
-  - alert: ExampleAlertAlwaysFiring
-    expr: sum by(job) (up == 1)
-`, url.Values{"nocache": {"1"}, "extra_label": {"env=prod", "job=victoriametrics"}})
 	})
 }

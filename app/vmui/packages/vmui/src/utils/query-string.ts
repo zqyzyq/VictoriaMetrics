@@ -13,6 +13,13 @@ const graphStateToUrlParams = {
 const stateToUrlParams = {
   [router.home]: graphStateToUrlParams,
   [router.dashboards]: graphStateToUrlParams,
+  [router.cardinality]: {
+    "topN": "topN",
+    "date": "date",
+    "match": "match[]",
+    "extraLabel": "extra_label",
+    "focusLabel": "focusLabel"
+  }
 };
 
 // TODO need function for detect types.
@@ -46,9 +53,9 @@ export const setQueryStringWithoutPageReload = (qsValue: string): void => {
 
 export const setQueryStringValue = (newValue: Record<string, unknown>): void => {
   const route = window.location.hash.replace("#", "");
-  const params = stateToUrlParams[route] || {};
+  const params = stateToUrlParams[route] || graphStateToUrlParams;
   const queryMap = new Map(Object.entries(params));
-  const isGraphRoute = route === router.home || route === router.dashboards;
+  const isGraphRoute = route === router.home || route === router.dashboards || !route;
   const newQsValue = isGraphRoute ? getGraphQsValue(newValue, queryMap) : getQsValue(newValue, queryMap);
   setQueryStringWithoutPageReload(newQsValue.join("&"));
 };

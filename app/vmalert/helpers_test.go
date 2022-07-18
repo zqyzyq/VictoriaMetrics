@@ -87,6 +87,18 @@ func (fn *fakeNotifier) getAlerts() []notifier.Alert {
 	return fn.alerts
 }
 
+type faultyNotifier struct {
+	fakeNotifier
+}
+
+func (fn *faultyNotifier) Send(ctx context.Context, _ []notifier.Alert) error {
+	d, ok := ctx.Deadline()
+	if ok {
+		time.Sleep(time.Until(d))
+	}
+	return fmt.Errorf("send failed")
+}
+
 func metricWithValueAndLabels(t *testing.T, value float64, labels ...string) datasource.Metric {
 	return metricWithValuesAndLabels(t, []float64{value}, labels...)
 }
@@ -152,7 +164,7 @@ func compareGroups(t *testing.T, a, b *Group) {
 			t.Fatalf("expected to have rule %q; got %q", want.ID(), got.ID())
 		}
 		if err := compareRules(t, want, got); err != nil {
-			t.Fatalf("comparsion error: %s", err)
+			t.Fatalf("comparison error: %s", err)
 		}
 	}
 }

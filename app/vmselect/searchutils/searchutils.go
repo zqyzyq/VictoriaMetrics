@@ -25,6 +25,19 @@ func roundToSeconds(ms int64) int64 {
 	return ms - ms%1000
 }
 
+// GetInt returns integer value from the given argKey.
+func GetInt(r *http.Request, argKey string) (int, error) {
+	argValue := r.FormValue(argKey)
+	if len(argValue) == 0 {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(argValue)
+	if err != nil {
+		return 0, fmt.Errorf("cannot parse integer %q=%q: %w", argKey, argValue, err)
+	}
+	return n, nil
+}
+
 // GetTime returns time from the given argKey query arg.
 //
 // If argKey is missing in r, then defaultMs rounded to seconds is returned.
@@ -195,17 +208,24 @@ func (d *Deadline) Deadline() uint64 {
 func (d *Deadline) String() string {
 	startTime := time.Unix(int64(d.deadline), 0).Add(-d.timeout)
 	elapsed := time.Since(startTime)
-	return fmt.Sprintf("%.3f seconds (elapsed %.3f seconds); the timeout can be adjusted with `%s` command-line flag", d.timeout.Seconds(), elapsed.Seconds(), d.flagHint)
+	msg := fmt.Sprintf("%.3f seconds (elapsed %.3f seconds)", d.timeout.Seconds(), elapsed.Seconds())
+	if d.flagHint != "" {
+		msg += fmt.Sprintf("; the timeout can be adjusted with `%s` command-line flag", d.flagHint)
+	}
+	return msg
 }
 
 // GetExtraTagFilters returns additional label filters from request.
 //
 // Label filters can be present in extra_label and extra_filters[] query args.
 // They are combined. For example, the following query args:
-//   extra_label=t1=v1&extra_label=t2=v2&extra_filters[]={env="prod",team="devops"}&extra_filters={env=~"dev|staging",team!="devops"}
+//
+//	extra_label=t1=v1&extra_label=t2=v2&extra_filters[]={env="prod",team="devops"}&extra_filters={env=~"dev|staging",team!="devops"}
+//
 // should be translated to the following filters joined with "or":
-//   {env="prod",team="devops",t1="v1",t2="v2"}
-//   {env=~"dev|staging",team!="devops",t1="v1",t2="v2"}
+//
+//	{env="prod",team="devops",t1="v1",t2="v2"}
+//	{env=~"dev|staging",team!="devops",t1="v1",t2="v2"}
 func GetExtraTagFilters(r *http.Request) ([][]storage.TagFilter, error) {
 	var tagFilters []storage.TagFilter
 	for _, match := range r.Form["extra_label"] {
@@ -213,12 +233,16 @@ func GetExtraTagFilters(r *http.Request) ([][]storage.TagFilter, error) {
 		if len(tmp) != 2 {
 			return nil, fmt.Errorf("`extra_label` query arg must have the format `name=value`; got %q", match)
 		}
+		if tmp[0] == "__name__" {
+			// This is required for storage.Search.
+			tmp[0] = ""
+		}
 		tagFilters = append(tagFilters, storage.TagFilter{
 			Key:   []byte(tmp[0]),
 			Value: []byte(tmp[1]),
 		})
 	}
-	extraFilters := r.Form["extra_filters"]
+	extraFilters := append([]string{}, r.Form["extra_filters"]...)
 	extraFilters = append(extraFilters, r.Form["extra_filters[]"]...)
 	if len(extraFilters) == 0 {
 		if len(tagFilters) == 0 {

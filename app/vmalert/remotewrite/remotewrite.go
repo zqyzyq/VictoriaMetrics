@@ -236,10 +236,16 @@ func (c *Client) send(ctx context.Context, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to create new HTTP request: %w", err)
 	}
+
+	// RFC standard compliant headers
+	req.Header.Set("Content-Encoding", "snappy")
+	req.Header.Set("Content-Type", "application/x-protobuf")
+
+	// Prometheus compliant headers
+	req.Header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
+
 	if c.authCfg != nil {
-		if auth := c.authCfg.GetAuthHeader(); auth != "" {
-			req.Header.Set("Authorization", auth)
-		}
+		c.authCfg.SetHeaders(req, true)
 	}
 	if !*disablePathAppend {
 		req.URL.Path = path.Join(req.URL.Path, "/api/v1/write")
