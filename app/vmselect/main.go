@@ -500,7 +500,28 @@ func sendPrometheusError(w http.ResponseWriter, r *http.Request, err error) {
 		statusCode = esc.StatusCode
 	}
 	w.WriteHeader(statusCode)
+
+	var execErr *promql.ExecErr
+	if errors.As(err, &execErr) {
+		err = lastWrappedErr(execErr.Err)
+	}
+
 	prometheus.WriteErrorResponse(w, statusCode, err)
+}
+
+// lastWrappedErr returned the last error in err's chain
+func lastWrappedErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	last := err
+	for {
+		err = errors.Unwrap(err)
+		if err == nil {
+			return last
+		}
+		last = err
+	}
 }
 
 var (

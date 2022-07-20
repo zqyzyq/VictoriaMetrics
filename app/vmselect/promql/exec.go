@@ -26,8 +26,28 @@ var (
 		`This option is DEPRECATED in favor of {__graphite__="a.*.c"} syntax for selecting metrics matching the given Graphite metrics filter`)
 )
 
+// ExecErr is an error type returned from Exec fn.
+// This type is can be checked by the caller in order
+// to modify the error when needed.
+type ExecErr struct {
+	Err error
+}
+
+// Error satisfies Error interface
+func (ee ExecErr) Error() string {
+	return ee.Err.Error()
+}
+
 // Exec executes q for the given ec.
 func Exec(qt *querytracer.Tracer, ec *EvalConfig, q string, isFirstPointOnly bool) ([]netstorage.Result, error) {
+	res, err := exec(qt, ec, q, isFirstPointOnly)
+	if err != nil {
+		return nil, &ExecErr{err}
+	}
+	return res, nil
+}
+
+func exec(qt *querytracer.Tracer, ec *EvalConfig, q string, isFirstPointOnly bool) ([]netstorage.Result, error) {
 	if querystats.Enabled() {
 		startTime := time.Now()
 		defer querystats.RegisterQuery(q, ec.End-ec.Start, startTime)
@@ -73,7 +93,7 @@ func Exec(qt *querytracer.Tracer, ec *EvalConfig, q string, isFirstPointOnly boo
 		}
 		qt.Printf("round series values to %d decimal digits after the point", n)
 	}
-	return result, err
+	return result, nil
 }
 
 func maySortResults(e metricsql.Expr, tss []*timeseries) bool {
