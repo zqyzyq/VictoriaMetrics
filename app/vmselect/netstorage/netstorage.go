@@ -220,17 +220,37 @@ func (rss *Results) RunParallel(qt *querytracer.Tracer, f func(rs *Result, worke
 	}
 
 	// Feed workers with work.
+	segmentLen := len(rss.packedTimeseries) / workers
 	tsws := make([]*timeseriesWork, len(rss.packedTimeseries))
 	var mustStop uint32
-	for i := range rss.packedTimeseries {
-		tsw := getTimeseriesWork()
-		tsw.rss = rss
-		tsw.pts = &rss.packedTimeseries[i]
-		tsw.f = f
-		tsw.mustStop = &mustStop
-		scheduleTimeseriesWork(workChs, tsw)
-		tsws[i] = tsw
+	var segWG sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		segWG.Add(1)
+		go func(segIdx int) {
+			defer segWG.Done()
+			l := segIdx * segmentLen
+			r := l + segmentLen
+			for j := l; j < r; j++ {
+				tsw := getTimeseriesWork()
+				tsw.rss = rss
+				tsw.pts = &rss.packedTimeseries[j]
+				tsw.f = f
+				tsw.mustStop = &mustStop
+				workChs[segIdx] <- tsw
+				tsws[j] = tsw
+			}
+			if lastIdx := workers*segmentLen + segIdx; lastIdx < len(rss.packedTimeseries) {
+				tsw := getTimeseriesWork()
+				tsw.rss = rss
+				tsw.pts = &rss.packedTimeseries[lastIdx]
+				tsw.f = f
+				tsw.mustStop = &mustStop
+				workChs[segIdx] <- tsw
+				tsws[lastIdx] = tsw
+			}
+		}(i)
 	}
+	segWG.Wait()
 	seriesProcessedTotal := len(rss.packedTimeseries)
 	rss.packedTimeseries = rss.packedTimeseries[:0]
 
